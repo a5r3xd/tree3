@@ -1,0 +1,555 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TREE(3) — Forest Game</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #101318;
+    --panel: #191f28;
+    --panel2: #202936;
+    --line: #354252;
+    --text: #edf2f7;
+    --muted: #9ba9b8;
+    --red: #ff555d;
+    --green: #4bd486;
+    --blue: #55a9ff;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 22px;
+    background: var(--bg); color: var(--text);
+    font-family: system-ui, -apple-system, Segoe UI, sans-serif;
+  }
+  main { max-width: 1100px; margin: auto; }
+  h1 { margin: 0 0 5px; font-size: 28px; }
+  .subtitle { color: var(--muted); margin-bottom: 20px; }
+  .topbar {
+    display: flex; gap: 12px; flex-wrap: wrap;
+    align-items: stretch; margin-bottom: 14px;
+  }
+  .stat, .panel {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: 12px;
+  }
+  .stat { padding: 12px 17px; min-width: 120px; }
+  .stat small { display: block; color: var(--muted); font-size: 12px; }
+  .stat strong { font-size: 23px; }
+  .panel { padding: 15px; margin-bottom: 14px; }
+  .panel h2 { margin: 0 0 12px; font-size: 16px; }
+  .seed-row { display: flex; gap: 22px; align-items: center; flex-wrap: wrap; }
+  .seed {
+    display: flex; align-items: center; gap: 9px;
+    cursor: grab; user-select: none; touch-action: none;
+    color: var(--muted); font-size: 14px;
+  }
+  .seed:active { cursor: grabbing; }
+  .seed-dot {
+    width: 27px; height: 27px; border-radius: 50%;
+    border: 2px solid rgba(255,255,255,.65);
+    box-shadow: 0 0 12px currentColor;
+  }
+  .red { background: var(--red); color: var(--red); }
+  .green { background: var(--green); color: var(--green); }
+  .blue { background: var(--blue); color: var(--blue); }
+  .instructions { color: var(--muted); font-size: 13px; line-height: 1.6; margin-top: 12px; }
+  .board-wrap { position: relative; }
+  #board {
+    display: block; width: 100%; height: auto;
+    background-color: #121923;
+    border: 1px solid var(--line); border-radius: 10px;
+    touch-action: none; cursor: crosshair;
+  }
+  .board-label {
+    display: flex; justify-content: space-between; gap: 10px;
+    color: var(--muted); font-size: 13px; margin: 0 2px 9px;
+  }
+  .actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 13px; }
+  button {
+    border: 1px solid var(--line); border-radius: 9px;
+    padding: 11px 17px; color: var(--text);
+    background: var(--panel2); font-weight: 650; cursor: pointer;
+  }
+  button:hover { filter: brightness(1.15); }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  #finish { background: #246c49; border-color: #31865d; }
+  #restart { display: none; background: #315b91; border-color: #477ab9; }
+  #status {
+    min-height: 44px; padding: 12px 14px; margin-top: 12px;
+    border: 1px solid var(--line); border-radius: 9px;
+    background: var(--panel); line-height: 1.5;
+  }
+  #status.good { border-color: #28734e; }
+  #status.bad { border-color: #a33e45; }
+  #forest { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; }
+  .tree-card {
+    background: var(--panel2); border: 1px solid var(--line);
+    border-radius: 9px; padding: 10px; min-width: 0;
+  }
+  .tree-card strong { display: block; margin-bottom: 5px; }
+  .tree-card small { color: var(--muted); }
+  .tree-preview { display: block; width: 100%; height: 80px; margin-top: 6px; }
+  .forest-dead { opacity: .48; filter: grayscale(.8); }
+  .tree-offender {
+    opacity: 1; filter: none; border: 3px solid #ff414d;
+    box-shadow: 0 0 13px rgba(255,65,77,.28);
+  }
+  .offender-label { color: #ff6972; font-size: 11px; margin-top: 7px; font-weight: 700; }
+  .legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--muted); }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .legend i { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+  @media (max-width: 600px) {
+    body { padding: 12px; }
+    h1 { font-size: 23px; }
+    .stat { flex: 1; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <h1>🌳 TREE(3) — Forest Game</h1>
+  <div class="subtitle">Build a sequence of rooted, colored trees. Keep the forest alive.</div>
+
+  <div class="topbar">
+    <div class="stat"><small>NEXT TREE</small><strong id="turn">1</strong></div>
+    <div class="stat"><small>FOREST SCORE</small><strong id="score">0</strong></div>
+    <div class="stat"><small>MAX NODES</small><strong id="limit">1</strong></div>
+  </div>
+
+  <section class="panel">
+    <h2>Seed supply — drag a seed onto the grid</h2>
+    <div class="seed-row">
+      <div class="seed" data-type="R"><span class="seed-dot red"></span> Red</div>
+      <div class="seed" data-type="G"><span class="seed-dot green"></span> Green</div>
+      <div class="seed" data-type="B"><span class="seed-dot blue"></span> Blue</div>
+    </div>
+    <div class="instructions">
+      Each seed creates one node. The first node you place becomes the root.
+      A tree must be connected and have no cycles. You may use fewer nodes than the maximum.
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="board-label">
+      <span><strong>Current tree</strong> — click node → click another node to connect</span>
+      <span id="nodeCount">0 nodes</span>
+    </div>
+    <div class="legend">
+      <span><i style="background:var(--red)"></i> Red</span>
+      <span><i style="background:var(--green)"></i> Green</span>
+      <span><i style="background:var(--blue)"></i> Blue</span>
+      <span>Thick line = click to delete connection</span>
+      <span style="color:#ff6972">Red outline = illegal tree after loss</span>
+    </div>
+    <div class="board-wrap">
+      <svg id="board" viewBox="0 0 800 500" aria-label="Tree building grid">
+        <defs>
+          <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+            <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#263342" stroke-width="1"/>
+          </pattern>
+        </defs>
+        <rect width="800" height="500" fill="url(#grid)"/>
+        <g id="edges"></g>
+        <g id="nodes"></g>
+        <g id="ghost" pointer-events="none"></g>
+      </svg>
+    </div>
+    <div class="actions">
+      <button id="finish">Finish Tree</button>
+      <button id="clear">Clear Current Tree</button>
+      <button id="restart">Start New Game</button>
+    </div>
+    <div id="status">Drag your first seed onto the grid. It will become the root.</div>
+  </section>
+
+  <section class="panel">
+    <h2>🌲 Your forest</h2>
+    <div id="forest"><span class="instructions">No trees planted yet.</span></div>
+  </section>
+</main>
+
+<script>
+(() => {
+  const svg = document.getElementById('board');
+  const edgesLayer = document.getElementById('edges');
+  const nodesLayer = document.getElementById('nodes');
+  const ghostLayer = document.getElementById('ghost');
+  const statusEl = document.getElementById('status');
+  const forestEl = document.getElementById('forest');
+  const colors = { R: '#ff555d', G: '#4bd486', B: '#55a9ff' };
+  const names = { R: 'Red', G: 'Green', B: 'Blue' };
+
+  let nodes = [];
+  let edges = [];
+  let forest = [];
+  let turn = 1;
+  let selected = null;
+  let gameOver = false;
+  let drag = null;
+  let nextId = 1;
+  let offendingTreeIndex = null;
+
+  const NS = 'http://www.w3.org/2000/svg';
+  const makeSvg = (tag, attrs = {}) => {
+    const el = document.createElementNS(NS, tag);
+    for (const [key, value] of Object.entries(attrs)) el.setAttribute(key, value);
+    return el;
+  };
+  const setStatus = (message, kind = '') => {
+    statusEl.textContent = message;
+    statusEl.className = kind;
+  };
+  const pointFromEvent = (event) => {
+    const rect = svg.getBoundingClientRect();
+    return {
+      x: (event.clientX - rect.left) * 800 / rect.width,
+      y: (event.clientY - rect.top) * 500 / rect.height
+    };
+  };
+  const snap = value => Math.max(20, Math.min(780, Math.round(value / 40) * 40));
+
+  function updateStats() {
+    document.getElementById('turn').textContent = turn;
+    document.getElementById('score').textContent = forest.length;
+    document.getElementById('limit').textContent = turn;
+    document.getElementById('nodeCount').textContent = `${nodes.length} node${nodes.length === 1 ? '' : 's'}`;
+    document.getElementById('finish').disabled = gameOver;
+    document.getElementById('clear').disabled = gameOver;
+  }
+
+  function render() {
+    edgesLayer.replaceChildren();
+    nodesLayer.replaceChildren();
+
+    for (const edge of edges) {
+      const a = nodes.find(n => n.id === edge.a);
+      const b = nodes.find(n => n.id === edge.b);
+      if (!a || !b) continue;
+      const line = makeSvg('line', {
+        x1: a.x, y1: a.y, x2: b.x, y2: b.y,
+        stroke: gameOver ? '#ff414d' : '#d8e2ed',
+        'stroke-width': gameOver ? 11 : 9, 'stroke-linecap': 'round',
+        opacity: .98, cursor: gameOver ? 'default' : 'pointer'
+      });
+      line.addEventListener('pointerdown', event => {
+        event.stopPropagation();
+        if (gameOver) return;
+        edges = edges.filter(e => e !== edge);
+        if (selected === edge.a || selected === edge.b) selected = null;
+        render();
+        setStatus('Connection removed.');
+      });
+      edgesLayer.append(line);
+    }
+
+    for (const node of nodes) {
+      const group = makeSvg('g', { transform: `translate(${node.x} ${node.y})`, cursor: 'grab' });
+      const circle = makeSvg('circle', {
+        r: gameOver ? 19 : 15,
+        fill: colors[node.type],
+        stroke: gameOver ? '#ff2635' : (selected === node.id ? '#ffffff' : '#101318'),
+        'stroke-width': gameOver ? 6 : (selected === node.id ? 5 : 3)
+      });
+      const label = makeSvg('text', {
+        x: 0, y: 4, 'text-anchor': 'middle', 'font-size': 11,
+        'font-weight': 800, fill: '#111820', 'pointer-events': 'none'
+      });
+      label.textContent = node.type;
+      group.append(circle, label);
+      if (nodes.length && nodes[0].id === node.id) {
+        const rootMark = makeSvg('text', {
+          x: 0, y: -23, 'text-anchor': 'middle', 'font-size': 11,
+          fill: '#e8eef5', 'pointer-events': 'none'
+        });
+        rootMark.textContent = 'ROOT';
+        group.append(rootMark);
+      }
+      group.addEventListener('pointerdown', event => {
+        if (gameOver || event.button !== 0) return;
+        event.stopPropagation();
+        const p = pointFromEvent(event);
+        drag = { kind: 'node', id: node.id, startX: p.x, startY: p.y, moved: false, offsetX: node.x - p.x, offsetY: node.y - p.y };
+        svg.setPointerCapture(event.pointerId);
+      });
+      nodesLayer.append(group);
+    }
+    updateStats();
+  }
+
+  function addNode(type, x, y) {
+    if (nodes.length >= turn) {
+      setStatus(`Tree ${turn} can have at most ${turn} node${turn === 1 ? '' : 's'}.`, 'bad');
+      return;
+    }
+    const position = { x: snap(x), y: snap(y) };
+    if (nodes.some(n => Math.hypot(n.x - position.x, n.y - position.y) < 28)) {
+      setStatus('That grid position is occupied. Try another spot.');
+      return;
+    }
+    nodes.push({ id: nextId++, type, ...position });
+    render();
+    setStatus(`${names[type]} seed planted${nodes.length === 1 ? ' — this is the root.' : '.'}`, 'good');
+  }
+
+  // Drag seeds from the tray.
+  document.querySelectorAll('.seed').forEach(seed => {
+    seed.addEventListener('pointerdown', event => {
+      if (gameOver) return;
+      event.preventDefault();
+      drag = { kind: 'seed', type: seed.dataset.type };
+      const ghost = makeSvg('circle', { cx: 0, cy: 0, r: 14, fill: colors[drag.type], opacity: .75 });
+      ghostLayer.replaceChildren(ghost);
+      moveGhost(event);
+    });
+  });
+
+  function moveGhost(event) {
+    if (!drag || drag.kind !== 'seed') return;
+    const p = pointFromEvent(event);
+    const circle = ghostLayer.firstChild;
+    if (circle) {
+      circle.setAttribute('cx', p.x);
+      circle.setAttribute('cy', p.y);
+    }
+  }
+
+  window.addEventListener('pointermove', event => {
+    if (!drag) return;
+    if (drag.kind === 'seed') {
+      moveGhost(event);
+      return;
+    }
+    if (drag.kind === 'node') {
+      const p = pointFromEvent(event);
+      if (Math.hypot(p.x - drag.startX, p.y - drag.startY) > 4) drag.moved = true;
+      const node = nodes.find(n => n.id === drag.id);
+      if (node && drag.moved) {
+        node.x = snap(p.x + drag.offsetX);
+        node.y = snap(p.y + drag.offsetY);
+        render();
+      }
+    }
+  });
+
+  window.addEventListener('pointerup', event => {
+    if (!drag) return;
+    if (drag.kind === 'seed') {
+      const rect = svg.getBoundingClientRect();
+      const inside = event.clientX >= rect.left && event.clientX <= rect.right &&
+                     event.clientY >= rect.top && event.clientY <= rect.bottom;
+      if (inside) {
+        const p = pointFromEvent(event);
+        addNode(drag.type, p.x, p.y);
+      }
+      ghostLayer.replaceChildren();
+    } else if (drag.kind === 'node' && !drag.moved) {
+      const id = drag.id;
+      if (selected === null) {
+        selected = id;
+        setStatus('Node selected. Click another node to connect it, or click this node again to cancel.');
+      } else if (selected === id) {
+        selected = null;
+        setStatus('Connection selection cancelled.');
+      } else {
+        const already = edges.some(e => (e.a === selected && e.b === id) || (e.a === id && e.b === selected));
+        if (already) {
+          setStatus('Those nodes are already connected.');
+        } else if (wouldMakeCycle(selected, id)) {
+          setStatus('That connection would create a cycle. A tree cannot contain cycles.', 'bad');
+        } else {
+          edges.push({ a: selected, b: id });
+          setStatus('Nodes connected.');
+        }
+        selected = null;
+      }
+    }
+    drag = null;
+    render();
+  });
+
+  function wouldMakeCycle(start, goal) {
+    const seen = new Set([start]);
+    const stack = [start];
+    while (stack.length) {
+      const current = stack.pop();
+      if (current === goal) return true;
+      for (const e of edges) {
+        const other = e.a === current ? e.b : e.b === current ? e.a : null;
+        if (other !== null && !seen.has(other)) { seen.add(other); stack.push(other); }
+      }
+    }
+    return false;
+  }
+
+  function buildRootedTree() {
+    if (nodes.length === 0) return { error: 'You must plant at least one node.' };
+    if (nodes.length > turn) return { error: `Too many nodes: tree ${turn} allows at most ${turn}.` };
+    if (edges.length !== nodes.length - 1) return { error: 'Your tree must be connected. Connect every node to the root.' };
+
+    const byId = new Map(nodes.map(n => [n.id, n]));
+    const adjacency = new Map(nodes.map(n => [n.id, []]));
+    for (const e of edges) {
+      if (!byId.has(e.a) || !byId.has(e.b)) return { error: 'Invalid connection.' };
+      adjacency.get(e.a).push(e.b);
+      adjacency.get(e.b).push(e.a);
+    }
+    const rootId = nodes[0].id;
+    const seen = new Set();
+    function visit(id, parent = null) {
+      if (seen.has(id)) return null;
+      seen.add(id);
+      const result = { label: byId.get(id).type, children: [] };
+      for (const child of adjacency.get(id)) {
+        if (child === parent) continue;
+        const subtree = visit(child, id);
+        if (!subtree) return null;
+        result.children.push(subtree);
+      }
+      return result;
+    }
+    const tree = visit(rootId);
+    if (!tree || seen.size !== nodes.length) return { error: 'The nodes do not form one connected tree.' };
+    return { tree };
+  }
+
+  // Root-preserving, label-preserving homeomorphic embedding.
+  // A source child must fit somewhere down one distinct child-branch
+  // of the target node. Intermediate target nodes may be skipped.
+  function embeds(source, target) {
+    const memo = new Map();
+    function at(a, b) {
+      const key = a._id + ':' + b._id;
+      if (memo.has(key)) return memo.get(key);
+      if (a.label !== b.label) { memo.set(key, false); return false; }
+      const possibleBranches = a.children.map(sourceChild => {
+        const matches = [];
+        for (let i = 0; i < b.children.length; i++) {
+          if (canFitDown(sourceChild, b.children[i])) matches.push(i);
+        }
+        return matches;
+      });
+      const order = possibleBranches.map((v, i) => i).sort((i, j) => possibleBranches[i].length - possibleBranches[j].length);
+      const used = new Set();
+      function assign(k) {
+        if (k === order.length) return true;
+        const sourceIndex = order[k];
+        for (const branchIndex of possibleBranches[sourceIndex]) {
+          if (used.has(branchIndex)) continue;
+          used.add(branchIndex);
+          if (assign(k + 1)) return true;
+          used.delete(branchIndex);
+        }
+        return false;
+      }
+      const result = assign(0);
+      memo.set(key, result);
+      return result;
+    }
+    function canFitDown(a, targetBranchRoot) {
+      if (at(a, targetBranchRoot)) return true;
+      return targetBranchRoot.children.some(child => canFitDown(a, child));
+    }
+    let id = 1;
+    function tag(t) { t._id = id++; t.children.forEach(tag); }
+    tag(source); tag(target);
+    return at(source, target);
+  }
+
+  function cloneTree(tree) {
+    return { label: tree.label, children: tree.children.map(cloneTree) };
+  }
+
+  function treeSummary(tree) {
+    let out = tree.label;
+    if (tree.children.length) out += '(' + tree.children.map(treeSummary).join(',') + ')';
+    return out;
+  }
+
+  function finishTree() {
+    if (gameOver) return;
+    const built = buildRootedTree();
+    if (built.error) {
+      lose(built.error);
+      return;
+    }
+    const candidate = built.tree;
+    for (let i = 0; i < forest.length; i++) {
+      if (embeds(cloneTree(forest[i].tree), cloneTree(candidate))) {
+        lose(`Illegal tree! Your new tree contains an embedded copy of Tree ${i + 1} (${forest[i].summary}). The entire forest has died.`, i);
+        return;
+      }
+    }
+    forest.push({ tree: cloneTree(candidate), summary: treeSummary(candidate), count: nodes.length });
+    renderForest();
+    const planted = turn;
+    turn++;
+    nodes = [];
+    edges = [];
+    selected = null;
+    render();
+    setStatus(`Tree ${planted} accepted! It joins the forest. Now build Tree ${turn}, with at most ${turn} nodes.`, 'good');
+  }
+
+  function lose(reason, earlierTreeIndex = null) {
+    gameOver = true;
+    offendingTreeIndex = earlierTreeIndex;
+    selected = null;
+    // Keep the illegal tree on the board so the red outline shows the
+    // tree that caused the loss. The earlier matching tree is outlined below.
+    render();
+    renderForest();
+    setStatus(`GAME OVER — ${reason} The red outline marks the illegal new tree; the red-bordered forest card marks the earlier tree it matched. Final score: ${forest.length} tree(s).`, 'bad');
+    document.getElementById('restart').style.display = 'inline-block';
+  }
+
+  function renderForest() {
+    forestEl.replaceChildren();
+    if (!forest.length) {
+      const empty = document.createElement('span');
+      empty.className = 'instructions';
+      empty.textContent = 'No trees planted yet.';
+      forestEl.append(empty);
+      return;
+    }
+    forest.forEach((item, index) => {
+      const card = document.createElement('div');
+      card.className = 'tree-card' + (gameOver ? ' forest-dead' : '') +
+        (offendingTreeIndex === index ? ' tree-offender' : '');
+      const title = document.createElement('strong');
+      title.textContent = `Tree ${index + 1}`;
+      const detail = document.createElement('small');
+      detail.textContent = `${item.count} node(s) · ${item.summary}`;
+      card.append(title, detail);
+      if (offendingTreeIndex === index) {
+        const marker = document.createElement('div');
+        marker.className = 'offender-label';
+        marker.textContent = '← Earlier tree involved in the violation';
+        card.append(marker);
+      }
+      forestEl.append(card);
+    });
+  }
+
+  document.getElementById('finish').addEventListener('click', finishTree);
+  document.getElementById('clear').addEventListener('click', () => {
+    if (gameOver) return;
+    nodes = []; edges = []; selected = null;
+    render();
+    setStatus('Current tree cleared. Your forest is unchanged.');
+  });
+  document.getElementById('restart').addEventListener('click', () => {
+    nodes = []; edges = []; forest = []; turn = 1; selected = null;
+    gameOver = false; drag = null; nextId = 1; offendingTreeIndex = null;
+    document.getElementById('restart').style.display = 'none';
+    renderForest(); render();
+    setStatus('New game started. Drag your first seed onto the grid.');
+  });
+
+  renderForest();
+  render();
+})();
+</script>
+</body>
+</html>
